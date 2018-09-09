@@ -1,144 +1,168 @@
 package com.pierceecom.blog;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
-import java.net.URL;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import static org.junit.Assert.*;
+import com.pierceecom.blog.dto.Post;
+import org.hamcrest.collection.IsEmptyCollection;
 import org.junit.FixMethodOrder;
 import org.junit.Test;
 import org.junit.runners.MethodSorters;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
-/**
- * TODO, Consider it part of the test to replace HttpURLConnection with better
- * APIs (for example Jersey-client, JSON-P etc-) to call REST-service
- */
+import java.util.List;
+
+import static org.hamcrest.collection.IsCollectionWithSize.hasSize;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertThat;
+
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 public class BlogTestIntegr {
 
-    private static final String POST_1 = "{\"id\":\"1\",\"title\":\"First title\",\"content\":\"First content\"}";
-    private static final String POST_2 = "{\"id\":\"2\",\"title\":\"Second title\",\"content\":\"Second content\"}";
     private static final String POSTS_URI = "http://localhost:8080/blog-web/posts/";
+    private static final String FIRST_ID = "1";
+    private static final String FIRST_CONTENT = "First content";
+    private static final String FIRST_TITLE = "First title";
+    private static final String NEW_CONTENT = "New content";
+    private static final String SECOND_ID = "2";
+    private static final String SECOND_CONTENT = "Second tile";
+    private static final String SECOND_TITLE = "Second content";
 
-    
-    public BlogTestIntegr() {
-    }
+    private final RestTemplate restTemplate = new RestTemplate();
 
     @Test
     public void test_1_BlogWithoutPosts() {
-        String output = GET(POSTS_URI, 200);
-        assertEquals("[]", output);
+
+        final ResponseEntity<List<Post>> response = getAllPosts();
+
+        assertThat(response.getBody(), IsEmptyCollection.empty());
+        assertEquals(response.getStatusCode(), HttpStatus.OK);
     }
 
     @Test
     public void test_2_AddPosts() {
-        String location = POST(POSTS_URI, POST_1);
-        assertEquals(POSTS_URI + "1", location);
 
-        location = POST(POSTS_URI, POST_2);
-        assertEquals(POSTS_URI + "2", location);
+        final ResponseEntity<Post> firstPost = createPost(FIRST_ID, FIRST_CONTENT, FIRST_TITLE);
+        final ResponseEntity<Post> secondPost = createPost(SECOND_ID, SECOND_CONTENT, SECOND_TITLE);
+
+        assertEquals(firstPost.getBody().getId(), FIRST_ID);
+        assertEquals(firstPost.getBody().getContent(), FIRST_CONTENT);
+        assertEquals(firstPost.getBody().getTitle(), FIRST_TITLE);
+        assertEquals(firstPost.getStatusCode(), HttpStatus.CREATED);
+        assertEquals(secondPost.getBody().getId(), SECOND_ID);
+        assertEquals(secondPost.getBody().getContent(), SECOND_CONTENT);
+        assertEquals(secondPost.getBody().getTitle(), SECOND_TITLE);
+        assertEquals(secondPost.getStatusCode(), HttpStatus.CREATED);
     }
 
     @Test
     public void test_3_GetPost() {
-        String postJson = GET(POSTS_URI + "1", 200);
-        assertEquals(POST_1, postJson);
 
-        postJson = GET(POSTS_URI + "2", 200);
-        assertEquals(POST_2, postJson);
+        final ResponseEntity<Post> firstPost = getSinglePost(FIRST_ID);
+        final ResponseEntity<Post> secondPost = getSinglePost(SECOND_ID);
+
+        assertEquals(firstPost.getBody().getId(), FIRST_ID);
+        assertEquals(firstPost.getBody().getContent(), FIRST_CONTENT);
+        assertEquals(firstPost.getBody().getTitle(), FIRST_TITLE);
+        assertEquals(secondPost.getBody().getId(), SECOND_ID);
+        assertEquals(secondPost.getBody().getContent(), SECOND_CONTENT);
+        assertEquals(secondPost.getBody().getTitle(), SECOND_TITLE);
     }
 
     @Test
     public void test_4_GetAllPosts() {
-        String output = GET(POSTS_URI, 200);
-        assertEquals("[" + POST_1 + "," + POST_2 + "]", output);
-    }
-    
-    @Test
-    public void test_5_DeletePosts() {
-        DELETE(POSTS_URI + "1", 200);        
-        // Should now be gone
-        GET(POSTS_URI + "1", 204);
+        final ResponseEntity<List<Post>> response = getAllPosts();
 
-        DELETE(POSTS_URI + "2", 200);        
-        // Should now be gone
-        GET(POSTS_URI + "2", 204);      
-
+        assertThat(response.getBody(), hasSize(2));
+        assertEquals(response.getStatusCode(), HttpStatus.OK);
     }
 
     @Test
-    public void test_6_GetAllPostsShouldNowBeEmpty() {
-        String output = GET(POSTS_URI, 200);
-        assertEquals("[]", output);
+    public void test_5_UpdatePost() {
+
+        final ResponseEntity<Post> post = restTemplate.exchange(getUriComponentsBuilder().toUriString(), HttpMethod.PUT,
+                new HttpEntity<>(preparePost(FIRST_ID, NEW_CONTENT, FIRST_TITLE), createHeaders()), Post.class);
+
+        assertEquals(post.getBody().getId(), FIRST_ID);
+        assertEquals(post.getBody().getContent(), NEW_CONTENT);
+        assertEquals(post.getBody().getTitle(), FIRST_TITLE);
     }
 
-    /* Helper methods */
-    private String GET(String uri, int expectedResponseCode) {
-        StringBuilder sb = new StringBuilder();
-        try {
-            URL url = new URL(uri);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setRequestProperty("Accept", "application/json");
-            assertEquals(expectedResponseCode, conn.getResponseCode());
-            BufferedReader br = new BufferedReader(new InputStreamReader((conn.getInputStream())));
+    @Test
+    public void test_6_DeletePosts() {
 
-            String output;
-            while ((output = br.readLine()) != null) {
-                sb.append(output);
-            }
+        final ResponseEntity deleteFirstPost = removePost(FIRST_ID);
+        final ResponseEntity<Post> getFirstPost = getSinglePost(FIRST_ID);
+        final ResponseEntity deleteSecondPost = removePost(SECOND_ID);
+        final ResponseEntity<Post> getSecondPost = getSinglePost(SECOND_ID);
 
-            conn.disconnect();
-        } catch (MalformedURLException ex) {
-            Logger.getLogger(BlogTestIntegr.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (IOException ex) {
-            Logger.getLogger(BlogTestIntegr.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        return sb.toString();
+        assertEquals(deleteFirstPost.getStatusCode(), HttpStatus.OK);
+        assertEquals(getFirstPost.getStatusCode(), HttpStatus.NO_CONTENT);
+        assertNull(getFirstPost.getBody());
+        assertEquals(deleteSecondPost.getStatusCode(), HttpStatus.OK);
+        assertEquals(getSecondPost.getStatusCode(), HttpStatus.NO_CONTENT);
+        assertNull(getSecondPost.getBody());
     }
 
-    private String POST(String uri, String json) {
-        String location = "";
-        try {
-            URL url = new URL(uri);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setDoOutput(true);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
+    @Test
+    public void test_7_GetAllPostsShouldNowBeEmpty() {
 
-            OutputStream os = conn.getOutputStream();
-            os.write(json.getBytes());
-            os.flush();
-            assertEquals(201, conn.getResponseCode());
+        final ResponseEntity<List<Post>> response = getAllPosts();
 
-            location = conn.getHeaderField("Location");
-            conn.disconnect();
-
-        } catch (MalformedURLException ex) {
-            Logger.getLogger(BlogTestIntegr.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (IOException ex) {
-            Logger.getLogger(BlogTestIntegr.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        return location;
+        assertThat(response.getBody(), IsEmptyCollection.empty());
+        assertEquals(response.getStatusCode(), HttpStatus.OK);
     }
 
-    private void DELETE(String uri, int expectedResponseCode) {
-        try {
-            URL url = new URL(uri);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setRequestMethod("DELETE");
-            conn.setRequestProperty("Accept", "application/json");
-            assertEquals(expectedResponseCode, conn.getResponseCode());
-        } catch (MalformedURLException ex) {
-            Logger.getLogger(BlogTestIntegr.class.getName()).log(Level.SEVERE, null, ex);
-        } catch (IOException ex) {
-            Logger.getLogger(BlogTestIntegr.class.getName()).log(Level.SEVERE, null, ex);
-        }
+    private HttpHeaders createHeaders() {
+
+        final HttpHeaders httpHeaders = new HttpHeaders();
+        httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+
+        return httpHeaders;
     }
 
+    private UriComponentsBuilder getUriComponentsBuilder() {
+        return UriComponentsBuilder.fromHttpUrl(POSTS_URI);
+    }
+
+    private UriComponentsBuilder getUriComponentsBuilder(final String path) {
+        return getUriComponentsBuilder().path(path);
+    }
+
+    private Post preparePost(final String id, final String content, final String title) {
+
+        final Post post = new Post();
+        post.setId(id);
+        post.setContent(content);
+        post.setTitle(title);
+
+        return post;
+    }
+
+    private ResponseEntity<List<Post>> getAllPosts() {
+        return restTemplate.exchange(getUriComponentsBuilder().toUriString(), HttpMethod.GET, new HttpEntity<>(createHeaders()),
+                new ParameterizedTypeReference<List<Post>>() {
+
+                });
+    }
+
+    private ResponseEntity<Post> getSinglePost(final String id) {
+        return restTemplate.exchange(getUriComponentsBuilder(id).toUriString(), HttpMethod.GET, new HttpEntity<>(createHeaders()), Post.class);
+    }
+
+    private ResponseEntity removePost(final String id) {
+        return restTemplate.exchange(getUriComponentsBuilder(id).toUriString(), HttpMethod.DELETE, new HttpEntity<>(createHeaders()), ResponseEntity.class);
+    }
+
+    private ResponseEntity<Post> createPost(final String id, final String content, final String tile) {
+        return restTemplate
+                .exchange(getUriComponentsBuilder().toUriString(), HttpMethod.POST, new HttpEntity<>(preparePost(id, content, tile), createHeaders()),
+                        Post.class);
+    }
 }

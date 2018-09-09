@@ -10,18 +10,7 @@
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
     </properties>
-    
-    <dependencyManagement>
-        <dependencies>
-            <dependency>
-                <groupId>javax</groupId>
-                <artifactId>javaee-api</artifactId>
-                <version>7.0</version>
-                <scope>provided</scope>
-            </dependency>
-        </dependencies>
-    </dependencyManagement>
-    
+
     <build>
         <plugins>
             <plugin>
@@ -32,11 +21,12 @@
                     <source>1.8</source>
                     <target>1.8</target>
                 </configuration>
-            </plugin>           
+            </plugin>
         </plugins>
     </build>
     <modules>
         <module>blog-web</module>
+        <module>blog-client</module>
         <module>integration-test</module>
     </modules>
 </project>
